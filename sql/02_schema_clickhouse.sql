@@ -1,11 +1,12 @@
 -- =============================================================================
--- Bank Transactions DWH — ClickHouse schema (analytical fact layer)
+-- Bank Transactions DWH — схема ClickHouse (аналитический слой фактов)
 --
--- Role in the architecture: ClickHouse stores fact_transactions at scale
--- and serves the heavy aggregating queries (see 04_analytical_queries.sql).
--- Dimensions stay small enough that they are usually looked up from
--- PostgreSQL or mirrored into ClickHouse as Dictionary tables; only the
--- fact table is shown here since that is where the engine choice matters.
+-- Роль в архитектуре: ClickHouse хранит fact_transactions в промышленном
+-- масштабе и обслуживает тяжёлые агрегирующие запросы (см.
+-- 04_analytical_queries.sql). Измерения достаточно небольшие, поэтому их
+-- обычно читают из PostgreSQL или зеркалируют в ClickHouse как таблицы
+-- типа Dictionary; здесь показана только факт-таблица, поскольку именно
+-- на ней выбор движка имеет значение.
 -- =============================================================================
 
 CREATE TABLE fact_transactions
@@ -13,8 +14,8 @@ CREATE TABLE fact_transactions
     date         Date,
     customer_id  UInt32,
     account_id   UInt32,
-    channel_id   UInt8,      -- < 256 channels: compact type
-    type_id      UInt16,     -- < 65536 transaction types: compact type
+    channel_id   UInt8,      -- < 256 каналов: компактный тип
+    type_id      UInt16,     -- < 65536 видов операций: компактный тип
     product_id   UInt32,
     amount       Decimal(15, 2),
     fee          Decimal(15, 2),
@@ -26,20 +27,19 @@ PARTITION BY toYYYYMM(date)
 ORDER BY (date, customer_id)
 SETTINGS index_granularity = 8192;
 
--- Compact column types (UInt8/UInt16 for low-cardinality dimension keys)
--- keep the columnar footprint small and speed up scans — see README for
--- the full PostgreSQL-vs-ClickHouse trade-off table.
+-- Компактные типы колонок (UInt8/UInt16 для ключей измерений с низкой
+-- кардинальностью) уменьшают колоночный объём и ускоряют сканирование —
+-- полное сравнение PostgreSQL и ClickHouse — в README.
 --
--- Skip index example — accelerates filtering by an attribute that is not
--- part of the ORDER BY key (e.g. filtering by currency without scanning
--- every granule):
+-- Пример скип-индекса — ускоряет фильтрацию по атрибуту, не входящему в
+-- ORDER BY (например, фильтр по валюте без сканирования каждой гранулы):
 --
 -- ALTER TABLE fact_transactions
 --     ADD INDEX idx_currency currency TYPE set(0) GRANULARITY 4;
 
--- No FOREIGN KEY / referential-integrity enforcement in ClickHouse by
--- design (columnar + MPP engines generally skip FKs — see README).
--- Referential integrity is instead guaranteed procedurally: the ETL
--- process loads/refreshes dimension tables before it loads facts that
--- reference them (see docs — ETL section reproduced from the source
--- coursework).
+-- В ClickHouse намеренно нет FOREIGN KEY / проверки ссылочной
+-- целостности (колоночные и MPP-движки в целом отказываются от FK —
+-- см. README). Вместо этого целостность обеспечивается процедурно: ETL
+-- сначала загружает/обновляет таблицы измерений, и только потом —
+-- факты, которые на них ссылаются (см. описание ETL-процесса,
+-- воспроизведённое из исходной курсовой).

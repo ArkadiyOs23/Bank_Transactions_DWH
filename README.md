@@ -1,86 +1,91 @@
-# Bank Transactions DWH — a data warehouse for bank transaction analytics (OLAP)
+# Bank Transactions DWH — хранилище данных для анализа банковских транзакций (OLAP)
 
 ![PostgreSQL](https://img.shields.io/badge/DB-PostgreSQL_16-336791)
 ![ClickHouse](https://img.shields.io/badge/DB-ClickHouse-yellow)
 ![Python](https://img.shields.io/badge/Python-3.11-blue)
 ![License](https://img.shields.io/badge/license-MIT-lightgrey)
 
-A star-schema data warehouse design for analyzing a bank's financial transactions,
-plus a runnable demo: schema DDL, a synthetic data generator, and OLAP queries
-you can execute end to end on your own machine.
+Проект хранилища данных (DWH) на основе схемы «звезда» для анализа финансовых
+операций банка — с рабочим демо: DDL-скрипты схемы, генератор синтетических
+данных и аналитические запросы, которые можно запустить у себя от начала до
+конца.
 
-The data model, the ETL design, and the technology comparisons in this repo come
-from a course project ("Курсовая работа по дисциплине «Хранилища данных»»,
-Financial University under the Government of the Russian Federation, 2025) —
-see [Origin](#origin). What makes this repo more than the paper: real, executable
-DDL, a Faker-based data generator that actually populates the schema, and a
-docker-compose setup so anyone can run the whole thing in a few commands. No
-real bank data is used anywhere — every row is synthetic.
+Модель данных, архитектура ETL-процессов и сравнение технологий в этом
+репозитории взяты из моей курсовой работы («Проектирование хранилища данных
+для анализа финансовых операций банка с применением OLAP-технологий»,
+Финансовый университет при Правительстве РФ, 2025) — подробнее в разделе
+[Происхождение проекта](#происхождение-проекта). Что делает репозиторий
+больше, чем просто оформленная курсовая: реально рабочий DDL, генератор
+данных на Faker, который на самом деле заполняет схему, и docker-compose,
+позволяющий поднять весь стенд парой команд. Реальных банковских данных
+здесь нет — каждая строка синтетическая.
 
-## Business problem
+## Бизнес-задача
 
-Banks run their day-to-day operations on OLTP systems (core banking, card
-processing, CRM) optimized for fast, small, single-record transactions. Those
-systems are the wrong place to ask analytical questions — "what's our transaction
-volume by channel this quarter", "who are our top clients by turnover", "what
-share of activity has moved to mobile" — because scanning and aggregating
-millions of rows for that kind of query competes with the same system's job of
-processing live customer transactions. A data warehouse separates the two
-workloads: it consolidates data from multiple operational systems into one
-structure purpose-built for the read-heavy, aggregate-heavy queries analysts
-actually run.
+Банки ведут операционную деятельность на OLTP-системах (АБС, карточный
+процессинг, CRM), заточенных под быструю обработку множества мелких
+транзакций. Эти же системы плохо подходят для аналитических вопросов —
+«какой объём операций по каналам за квартал», «кто топ-клиенты по
+обороту», «какая доля активности ушла в мобильное приложение» — потому что
+сканирование и агрегация миллионов строк ради такого запроса конкурирует с
+основной задачей системы: обрабатывать транзакции клиентов в реальном
+времени. Хранилище данных разделяет эти две нагрузки: консолидирует данные
+из нескольких операционных систем в структуру, спроектированную именно под
+тяжёлые, агрегирующие запросы, которые реально выполняют аналитики.
 
-## Architecture
+## Архитектура
 
-Three layers, each doing the job it's good at:
+Три слоя, каждый решает свою задачу:
 
 ```mermaid
 flowchart LR
-    subgraph Sources
-        ABS[Core Banking / АБС]
+    subgraph Sources["Источники"]
+        ABS[АБС]
         CRM[CRM]
-        DBO[Internet & Mobile Banking logs]
-        CARD[Card Processing]
-        EXT[External sources: KYC, credit bureaus]
+        DBO["Логи интернет- и мобильного банка"]
+        CARD["Карточный процессинг"]
+        EXT["Внешние источники: KYC, БКИ"]
     end
-    Sources --> ETL[Airflow-orchestrated ETL\nPython + SQL]
-    ETL --> STG[(PostgreSQL\nstaging + dimensions)]
-    STG --> DWH[(ClickHouse\nfact_transactions, partitioned)]
-    DWH --> BI[Power BI / Apache Superset]
+    Sources --> ETL["ETL на Airflow\nPython + SQL"]
+    ETL --> STG[("PostgreSQL\nstaging + измерения")]
+    STG --> DWH[("ClickHouse\nfact_transactions, партиционировано")]
+    DWH --> BI["Power BI / Apache Superset"]
     STG --> BI
 ```
 
-| Layer | Technology | Role |
+| Слой | Технология | Роль |
 |---|---|---|
-| Storage | PostgreSQL | Staging zone and dimension tables — transactional updates, referential integrity, SCD handling |
-| Storage | ClickHouse | Fact table at scale — columnar storage, MergeTree partitioning, fast aggregation over hundreds of millions of rows |
-| Integration | Apache Airflow + Python/SQL | Orchestrates nightly (and optionally intraday) ETL: extract from source systems, clean and conform in staging, load dimensions then facts |
-| Analytics | Power BI (business users) / Apache Superset (technical analysts, open-source, strong ClickHouse support) | Dashboards and ad-hoc OLAP: slice, dice, drill-down, drill-through |
+| Хранение | PostgreSQL | Staging-зона и таблицы измерений — транзакционные обновления, ссылочная целостность, обработка SCD |
+| Хранение | ClickHouse | Факт-таблица в промышленном масштабе — колоночное хранение, партиционирование MergeTree, быстрая агрегация по сотням миллионов строк |
+| Интеграция | Apache Airflow + Python/SQL | Оркестрирует ночной (и, при необходимости, внутридневной) ETL: извлечение из источников, очистка и приведение к единому виду в staging, загрузка сначала измерений, затем фактов |
+| Аналитика | Power BI (бизнес-пользователи) / Apache Superset (технические аналитики, открытый код, хорошая поддержка ClickHouse) | Дашборды и ad-hoc OLAP: slice, dice, drill-down, drill-through |
 
-**Why PostgreSQL *and* ClickHouse, not just one:** PostgreSQL gives full
-transactional guarantees for data that changes (customer records, account
-status), which matters for correctness but doesn't need to be fast at massive
-scale. ClickHouse gives near-real-time aggregation over the fact table, which
-is append-only and can grow into the billions of rows — but it only supports
-transactions partially (eventual consistency on insert) and isn't a good fit
-for data that gets updated. ETL loads staging and dimensions into PostgreSQL
-first, then feeds the fact table into ClickHouse.
+**Почему PostgreSQL *и* ClickHouse, а не что-то одно:** PostgreSQL даёт
+полные транзакционные гарантии для данных, которые меняются (клиентские
+записи, статус счёта) — это важно для корректности, но не требует
+скорости на больших объёмах. ClickHouse даёт почти мгновенную агрегацию по
+факт-таблице, которая только пополняется и может вырасти до миллиардов
+строк — но транзакционность там поддерживается лишь частично (eventual
+consistency на вставке), и для данных, которые обновляются, эта СУБД не
+подходит. ETL сначала грузит staging и измерения в PostgreSQL, затем
+переносит факт-таблицу в ClickHouse.
 
-## Data model
+## Модель данных
 
-Kimball star schema: one fact table (`fact_transactions`) surrounded by six
-dimensions, each reachable from the fact table in a single join.
+Схема «звезда» по Кимбеллу: одна факт-таблица (`fact_transactions`) в
+окружении шести измерений, каждое из которых достижимо из факт-таблицы
+одним джойном.
 
 ```mermaid
 erDiagram
-    DIM_CUSTOMER ||--o{ FACT_TRANSACTIONS : "makes"
-    DIM_DATE ||--o{ FACT_TRANSACTIONS : "occurs on"
-    DIM_ACCOUNT ||--o{ FACT_TRANSACTIONS : "used in"
-    DIM_CHANNEL ||--o{ FACT_TRANSACTIONS : "via"
-    DIM_TRANSACTION_TYPE ||--o{ FACT_TRANSACTIONS : "classified as"
-    DIM_PRODUCT ||--o{ FACT_TRANSACTIONS : "relates to"
-    DIM_CUSTOMER ||--o{ DIM_ACCOUNT : "owns"
-    DIM_PRODUCT ||--o{ DIM_ACCOUNT : "of type"
+    DIM_CUSTOMER ||--o{ FACT_TRANSACTIONS : "совершает"
+    DIM_DATE ||--o{ FACT_TRANSACTIONS : "происходит"
+    DIM_ACCOUNT ||--o{ FACT_TRANSACTIONS : "используется в"
+    DIM_CHANNEL ||--o{ FACT_TRANSACTIONS : "через"
+    DIM_TRANSACTION_TYPE ||--o{ FACT_TRANSACTIONS : "классифицируется как"
+    DIM_PRODUCT ||--o{ FACT_TRANSACTIONS : "относится к"
+    DIM_CUSTOMER ||--o{ DIM_ACCOUNT : "владеет"
+    DIM_PRODUCT ||--o{ DIM_ACCOUNT : "тип продукта"
 
     DIM_CUSTOMER {
         int customer_id PK
@@ -143,170 +148,182 @@ erDiagram
     }
 ```
 
-### Why star, not snowflake
+### Почему «звезда», а не «снежинка»
 
-| Criterion | Star | Snowflake |
+| Критерий | Звезда | Снежинка |
 |---|---|---|
-| Dimension normalization | Denormalized (one table per dimension) | Normalized into sub-tables by hierarchy |
-| Query complexity | Low — one join per dimension | Higher — multiple joins per dimension |
-| Read performance | Higher (fewer joins) | Can be lower on complex queries |
-| Ease of understanding for analysts | High | Lower |
-| Best fit | Most BI use cases with moderate-size dimensions | Deep hierarchical dimensions where storage duplication matters |
+| Нормализация измерений | Денормализованы (одна таблица на измерение) | Нормализованы, разбиты на подтаблицы по иерархиям |
+| Сложность запросов | Низкая — один join на измерение | Выше — несколько join на измерение |
+| Производительность чтения | Выше (меньше соединений) | Может быть ниже на сложных запросах |
+| Понятность для аналитиков | Высокая | Ниже |
+| Область применения | Большинство BI-кейсов с умеренными по размеру справочниками | Сложные иерархические справочники, когда критично экономить место |
 
-Banking dimensions here (customers, accounts, channels) are small and flat
-enough that star wins on both query simplicity and read speed — the standard
-choice for this kind of workload.
+Банковские измерения здесь (клиенты, счета, каналы) достаточно небольшие
+и плоские, чтобы «звезда» выигрывала и по простоте запросов, и по скорости
+чтения — стандартный выбор для такой нагрузки.
 
-### Why OLTP and OLAP are split at all
+### Зачем вообще разделять OLTP и OLAP
 
 | | OLTP | OLAP |
 |---|---|---|
-| Goal | Process individual transactions in real time | Analyze large historical volumes, surface insights |
-| Workload | Frequent small writes (INSERT/UPDATE) | Infrequent, heavy read/aggregate queries |
-| Schema | Normalized (3NF) — minimize duplication | Denormalized (star/snowflake) — optimize for reads |
-| Latency | Milliseconds per transaction | Seconds to minutes per query is acceptable |
-| History retained | Days to months | Years to decades |
-| Typical engines | PostgreSQL, Oracle, MySQL | ClickHouse, Greenplum, Vertica |
+| Цель | Обработка отдельных транзакций в реальном времени | Анализ больших объёмов исторических данных, получение инсайтов |
+| Нагрузка | Частые небольшие операции (INSERT/UPDATE) | Редкие тяжёлые запросы на чтение/агрегацию |
+| Структура | Нормализованная (3НФ) — минимум дублирования | Денормализованная (звезда/снежинка) — оптимизирована под чтение |
+| Время отклика | Миллисекунды на транзакцию | Секунды-минуты на запрос — это нормально |
+| Глубина истории | Дни-месяцы | Годы-десятилетия |
+| Типичные СУБД | PostgreSQL, Oracle, MySQL | ClickHouse, Greenplum, Vertica |
 
-### Slowly Changing Dimensions
+### Медленно меняющиеся измерения (SCD)
 
-Customer and account attributes change over time (a customer's segment, an
-account's status). `dim_customer` is the SCD-sensitive dimension here: the
-design supports SCD Type 2 (a new row per change, with validity time
-boundaries) so that historical transactions stay linked to the customer state
-that was true when they happened — important for point-in-time reporting.
-This demo's generator loads current-state rows only; extending
-`dim_customer` with `valid_from`/`valid_to`/`is_current` columns is the
-natural next step for full history tracking.
+Атрибуты клиента и счёта меняются со временем (сегмент клиента, статус
+счёта). `dim_customer` — измерение, чувствительное к SCD в этой модели:
+дизайн поддерживает SCD второго типа (новая строка на каждое изменение, с
+границами периода действия), чтобы исторические транзакции оставались
+связаны с тем состоянием клиента, которое было актуально на момент
+операции — это важно для отчётности на произвольную дату в прошлом. В
+этом демо генератор загружает только текущее состояние; расширение
+`dim_customer` колонками `valid_from`/`valid_to`/`is_current` — логичный
+следующий шаг для полного хранения истории.
 
-### Partitioning and indexing
+### Партиционирование и индексы
 
-- **PostgreSQL**: declarative `PARTITION BY RANGE` on `transaction_time`
-  (monthly partitions) so archiving old data is a `DETACH PARTITION`, not a
-  slow row-by-row delete. See `sql/03_indexes_and_partitioning.sql`.
-- **ClickHouse**: `PARTITION BY toYYYYMM(date)` is native to the `MergeTree`
-  engine, combined with `ORDER BY (date, customer_id)` for fast range scans.
-- Indexes are added selectively — on `date_id`, `customer_id`, `account_id` —
-  the columns that actually appear in `WHERE`/`JOIN` clauses. Indexing every
-  column of a fact table just slows down bulk loads for no read-side benefit.
-- **FOREIGN KEY trade-off**: this demo keeps FKs on `fact_transactions` in
-  PostgreSQL (they catch bad loads early and the demo's data volume is small
-  enough that the write-side cost is negligible). At real banking scale,
-  dropping FKs from the fact table and enforcing referential integrity
-  procedurally in the ETL layer (load dimensions before the facts that
-  reference them) is standard practice — it removes the constraint-checking
-  bottleneck on bulk inserts. ClickHouse doesn't support FK constraints at
-  all, by design, for the same reason.
+- **PostgreSQL**: декларативное `PARTITION BY RANGE` по `transaction_time`
+  (помесячные партиции), чтобы архивирование старых данных было операцией
+  `DETACH PARTITION`, а не медленным построчным удалением. См.
+  `sql/03_indexes_and_partitioning.sql`.
+- **ClickHouse**: `PARTITION BY toYYYYMM(date)` — встроенный механизм
+  движка `MergeTree`, в сочетании с `ORDER BY (date, customer_id)` для
+  быстрых выборок по диапазону.
+- Индексы добавлены точечно — на `date_id`, `customer_id`, `account_id` —
+  на колонки, которые реально участвуют в `WHERE`/`JOIN`. Индексировать
+  каждую колонку факт-таблицы бессмысленно: это замедляет массовую
+  загрузку без выигрыша на чтении.
+- **Компромисс с FOREIGN KEY**: в этом демо внешние ключи на
+  `fact_transactions` в PostgreSQL сохранены (они ловят ошибки загрузки на
+  раннем этапе, а объём демо-данных слишком мал, чтобы издержки на записи
+  были заметны). В реальном банковском масштабе стандартная практика —
+  убрать FK с факт-таблицы и обеспечивать ссылочную целостность
+  процедурно на уровне ETL (сначала грузить измерения, затем факты,
+  которые на них ссылаются) — это снимает узкое место проверки
+  ограничений при массовой вставке. ClickHouse вообще не поддерживает FK
+  — по тем же соображениям.
 
-## ETL process
+## ETL-процесс
 
-Nightly batch load (with optional intraday incremental runs for fresher data),
-orchestrated by Apache Airflow, implemented in Python + SQL:
+Ночная пакетная загрузка (при необходимости — с внутридневными
+инкрементальными догрузками для более свежих данных), оркестрируется
+Apache Airflow, реализована на Python + SQL:
 
-1. **Extract** — pull from core banking (nightly SQL dump), CRM (API/replica),
-   online/mobile banking logs (SFTP, CSV/JSON), card processing (message
-   stream/files), external sources (REST APIs). Land everything unmodified
-   in a staging area first.
-2. **Transform** — deduplicate by business key, parse XML/JSON into tabular
-   form, normalize currency codes (ISO 4217) and units, enrich (compute
-   `date_id` from a timestamp, look up industry from a tax ID), validate
-   referential integrity against the dimensions (reject or flag orphaned
-   records), generate surrogate keys.
-3. **Load** — upsert dimensions first (including SCD handling for
-   `dim_customer`), then bulk-load facts (`COPY` in PostgreSQL, batch insert
-   in ClickHouse), and record load metadata (`last_etl_time`, row counts) so
-   a failed run can be safely reprocessed without creating duplicates —
-   transactions are deduplicated by their unique business key from the core
-   banking system.
+1. **Extract (извлечение)** — выгрузка из АБС (ночной дамп по SQL), CRM
+   (API/реплика), логов интернет- и мобильного банка (SFTP, CSV/JSON),
+   карточного процессинга (поток сообщений/файлы), внешних источников
+   (REST API). Всё сначала попадает в staging-зону без изменений.
+2. **Transform (преобразование)** — дедупликация по бизнес-ключу, парсинг
+   XML/JSON в табличный вид, нормализация кодов валют (ISO 4217) и
+   единиц измерения, обогащение (вычисление `date_id` из timestamp,
+   определение отрасли по ИНН), проверка ссылочной целостности
+   относительно измерений (отклонение или пометка «сиротских» записей),
+   генерация суррогатных ключей.
+3. **Load (загрузка)** — сначала upsert измерений (включая обработку SCD
+   для `dim_customer`), затем массовая загрузка фактов (`COPY` в
+   PostgreSQL, batch insert в ClickHouse), с фиксацией метаданных
+   загрузки (`last_etl_time`, число строк), чтобы упавший запуск можно
+   было безопасно перезапустить без дублей — транзакции дедуплицируются
+   по уникальному бизнес-ключу из АБС.
 
-Why Airflow: it doesn't transform data itself, but it schedules tasks,
-tracks dependencies as a DAG, retries on failure, and gives you a web UI to
-monitor runs — the standard way to make a hand-written Python/SQL ETL
-pipeline operable rather than a pile of cron jobs.
+Зачем Airflow: сам он данные не трансформирует, но планирует задачи,
+отслеживает зависимости как DAG, повторяет попытки при сбое и даёт
+веб-интерфейс для мониторинга запусков — стандартный способ превратить
+самописный Python/SQL-пайплайн в управляемый процесс, а не набор
+cron-задач.
 
-## Sample queries and results
+## Примеры запросов и результаты
 
-`sql/04_analytical_queries.sql` has 10 queries; all were run against the
-generated sample dataset (500 customers, 20,000 transactions, 2024–2025) to
-confirm they work. Two examples:
+В `sql/04_analytical_queries.sql` — 10 запросов; все были прогнаны на
+сгенерированных тестовых данных (500 клиентов, 20 000 транзакций,
+2024–2025), чтобы убедиться, что они реально работают. Два примера:
 
-**Volume and turnover by channel, October 2025** (aggregation — slice + dice):
+**Объём и оборот по каналам обслуживания за октябрь 2025** (агрегация —
+slice + dice):
 
 | channel | transaction_count | total_amount |
 |---|---|---|
-| POS Terminal | 161 | 1,848,031.71 |
-| ATM | 191 | 1,788,768.77 |
-| Internet Banking | 162 | 1,684,878.96 |
-| Mobile App | 156 | 1,469,787.86 |
-| Branch | 179 | 1,401,512.87 |
+| POS Terminal | 161 | 1 848 031,71 |
+| ATM | 191 | 1 788 768,77 |
+| Internet Banking | 162 | 1 684 878,96 |
+| Mobile App | 156 | 1 469 787,86 |
+| Branch | 179 | 1 401 512,87 |
 
-**Top-5 customers by turnover, 2025** (window function — `RANK() OVER`):
+**Топ-5 клиентов по обороту за 2025 год** (оконная функция —
+`RANK() OVER`):
 
 | full_name | segment | total_amount | rnk |
 |---|---|---|---|
-| Ostap Frolovich Knyazev | Mass Market | 831,911.77 | 1 |
-| Tverdislav Izmailovich Nekrasov | Corporate | 700,836.79 | 2 |
-| Yevgenia Yakusheva | VIP | 563,641.94 | 3 |
-| Eleonora Martynova | Mass Market | 549,898.13 | 4 |
-| Sobolev & Partners | Mass Affluent | 540,349.54 | 5 |
+| Остап Фролович Князев | Mass Market | 831 911,77 | 1 |
+| Твердислав Измаилович Некрасов | Corporate | 700 836,79 | 2 |
+| Якушева Евгения Афанасьевна | VIP | 563 641,94 | 3 |
+| Мартынова Элеонора Павловна | Mass Market | 549 898,13 | 4 |
+| Соболев и партнеры | Mass Affluent | 540 349,54 | 5 |
 
-(Numbers are from randomly generated synthetic data — re-running the
-generator produces different figures, since it uses a fixed random seed
-only for reproducibility of structure, not specific values across runs of
-different sizes.)
+(Цифры получены на случайно сгенерированных синтетических данных —
+повторный запуск генератора даст другие значения: фиксированный random
+seed гарантирует воспроизводимость структуры, а не конкретных цифр при
+другом объёме данных.)
 
-## Repository structure
+## Структура репозитория
 
 ```
 sql/
-  01_schema_postgresql.sql       — star schema DDL (6 dimensions + fact table)
-  02_schema_clickhouse.sql       — ClickHouse fact table variant (MergeTree, partitioned)
-  03_indexes_and_partitioning.sql — indexing strategy + PostgreSQL range partitioning
-  04_analytical_queries.sql      — 10 OLAP queries: aggregation, drill-down,
-                                    ranking, pivot, drill-through, window functions
+  01_schema_postgresql.sql        — DDL схемы «звезда» (6 измерений + факт-таблица)
+  02_schema_clickhouse.sql        — вариант факт-таблицы под ClickHouse (MergeTree, партиционирование)
+  03_indexes_and_partitioning.sql — стратегия индексирования + партиционирование PostgreSQL
+  04_analytical_queries.sql       — 10 OLAP-запросов: агрегация, drill-down,
+                                     ранжирование, pivot, drill-through, оконные функции
 data/
-  generate_sample_data.py        — synthetic data generator (Faker), fully runnable
-docker-compose.yml                — spins up PostgreSQL with the schema pre-applied
+  generate_sample_data.py         — генератор синтетических данных (Faker), полностью рабочий
+docker-compose.yml                 — поднимает PostgreSQL с уже применённой схемой
 ```
 
-## Quickstart
+## Быстрый старт
 
 ```bash
-git clone <this-repo-url>
+git clone <ссылка-на-этот-репозиторий>
 cd Bank_Transactions_DWH
 
-# 1. Start PostgreSQL with the schema already applied
+# 1. Поднять PostgreSQL с уже применённой схемой
 docker compose up -d
 
-# 2. Install generator dependencies
+# 2. Установить зависимости генератора
 pip install psycopg2-binary faker
 
-# 3. Populate with synthetic data
+# 3. Заполнить синтетическими данными
 python data/generate_sample_data.py \
     --dsn "postgresql://dwh_user:dwh_pass@localhost:5432/bank_dwh" \
     --customers 500 --transactions 20000
 
-# 4. Run the analytical queries
+# 4. Выполнить аналитические запросы
 psql "postgresql://dwh_user:dwh_pass@localhost:5432/bank_dwh" -f sql/04_analytical_queries.sql
 ```
 
-The ClickHouse script (`sql/02_schema_clickhouse.sql`) is included as the
-reference design for the fact table at scale; this demo's docker-compose
-runs the PostgreSQL-only path end to end, since standing up a ClickHouse
-cluster is out of scope for a local demo.
+Скрипт для ClickHouse (`sql/02_schema_clickhouse.sql`) приведён как
+эталонный дизайн факт-таблицы в промышленном масштабе; docker-compose в
+этом демо разворачивает только PostgreSQL-путь целиком, поскольку
+поднимать кластер ClickHouse ради локального демо избыточно.
 
-## Origin
+## Происхождение проекта
 
-The data model (star schema, SCD design), the ETL architecture, the
-PostgreSQL/ClickHouse technology comparison, and the analytical queries in
-`sql/04_analytical_queries.sql` originate from my course project "Проектирование
-хранилища данных для анализа финансовых операций банка с применением
-OLAP-технологий" (Data Warehouses course, Financial University under the
-Government of the Russian Federation, 2025). This repository adds: cleaned-up,
-runnable DDL split into logical files; a synthetic data generator
-(`data/generate_sample_data.py`); a docker-compose setup; and this README —
-turning the paper's design into something anyone can clone and run.
+Модель данных (схема «звезда», дизайн SCD), архитектура ETL, сравнение
+PostgreSQL/ClickHouse и аналитические запросы в
+`sql/04_analytical_queries.sql` — из моей курсовой работы
+«Проектирование хранилища данных для анализа финансовых операций банка с
+применением OLAP-технологий» (дисциплина «Хранилища данных», Финансовый
+университет при Правительстве Российской Федерации, 2025). Этот
+репозиторий добавляет: приведённый в порядок, рабочий DDL, разбитый на
+логические файлы; генератор синтетических данных
+(`data/generate_sample_data.py`); настройку docker-compose; и этот
+README — превращая дизайн из курсовой в то, что можно склонировать и
+сразу запустить.
 
-## License
+## Лицензия
 
-MIT — see [LICENSE](LICENSE).
+MIT — см. [LICENSE](LICENSE).

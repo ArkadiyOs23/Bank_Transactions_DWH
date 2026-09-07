@@ -1,22 +1,23 @@
 """
-Synthetic data generator for the Bank Transactions DWH demo.
+Генератор синтетических данных для демо-версии Bank Transactions DWH.
 
-The coursework this repo is based on designed the schema and the analytical
-queries; this script is the part that turns it into something you can
-actually run: it fills the star schema with realistic, fully synthetic
-data (Faker-generated customers, a 2024-2025 date dimension, random but
-plausible transactions) so that sql/04_analytical_queries.sql returns real
-results instead of running against empty tables.
+Курсовая работа, на которой основан этот репозиторий, спроектировала схему
+и аналитические запросы; этот скрипт — та часть, которая превращает их в
+нечто реально работающее: заполняет схему «звезда» правдоподобными,
+полностью синтетическими данными (клиенты через Faker, измерение дат за
+2024-2025, случайные, но правдоподобные транзакции), чтобы
+sql/04_analytical_queries.sql возвращал реальные результаты, а не выполнялся
+над пустыми таблицами.
 
-No real bank data of any kind is used or referenced here.
+Никакие реальные банковские данные здесь не используются и не упоминаются.
 
-Usage:
+Использование:
     pip install psycopg2-binary faker
     python generate_sample_data.py \
         --dsn "postgresql://dwh_user:dwh_pass@localhost:5432/bank_dwh" \
         --customers 500 --transactions 20000
 
-Run sql/01_schema_postgresql.sql against the target database first.
+Перед запуском нужно применить sql/01_schema_postgresql.sql к целевой базе.
 """
 
 import argparse
@@ -31,8 +32,14 @@ fake = Faker("ru_RU")
 Faker.seed(42)
 random.seed(42)
 
+# Категориальные значения (сегмент, канал, вид операции) оставлены на
+# английском намеренно — именно так они заданы в исходной курсовой работе
+# (например: "channel_name (например, ATM, Mobile App, Branch,
+# POS-terminal, Internet Banking)"), даже несмотря на то, что остальной
+# текст работы на русском. Регионы и ФИО клиентов — на кириллице, как и в
+# исходном тексте.
 SEGMENTS = ["Mass Market", "Mass Affluent", "VIP", "Corporate"]
-REGIONS = ["Moscow", "Saint Petersburg", "Novosibirsk", "Kazan", "Yekaterinburg", "Sochi"]
+REGIONS = ["Москва", "Санкт-Петербург", "Новосибирск", "Казань", "Екатеринбург", "Сочи"]
 
 CHANNELS = [
     ("Internet Banking", "remote"),
@@ -60,10 +67,10 @@ PRODUCTS = [
     ("Consumer Loan", "Loan"),
 ]
 
-ACCOUNT_TYPES = ["current", "card", "credit"]
+ACCOUNT_TYPES = ["текущий", "карточный", "кредитный"]
 CURRENCIES = ["RUB", "USD", "EUR"]
-# Overwhelming majority of transactions should be in RUB, matching a
-# realistic Russian-bank transaction mix.
+# Подавляющее большинство операций — в рублях, как и должно быть у
+# российского банка.
 CURRENCY_WEIGHTS = [0.92, 0.05, 0.03]
 
 DATE_START = date(2024, 1, 1)
@@ -125,9 +132,10 @@ def load_dim_product(cur):
 
 def load_dim_customer(cur, n_customers):
     rows = []
-    # A named, deterministic customer so sql/04_analytical_queries.sql's
-    # drill-through example (query 8) has a guaranteed match out of the box.
-    rows.append(("Ivanov I.I.", date(1985, 3, 12), "VIP", "Moscow", "individual", 2))
+    # Именной, детерминированный клиент, чтобы пример drill-through в
+    # sql/04_analytical_queries.sql (запрос 8) гарантированно находил
+    # совпадение сразу после запуска.
+    rows.append(("Иванов И.И.", date(1985, 3, 12), "VIP", "Москва", "individual", 2))
     for _ in range(n_customers - 1):
         is_corporate = random.random() < 0.15
         rows.append((
@@ -170,7 +178,7 @@ def load_dim_account(cur, customer_ids, product_ids):
         rows,
         page_size=1000, fetch=True,
     )
-    return result  # list of (account_id, customer_id)
+    return result  # список (account_id, customer_id)
 
 
 def load_fact_transactions(cur, n_transactions, accounts, date_ids_by_ymd,
@@ -180,7 +188,7 @@ def load_fact_transactions(cur, n_transactions, accounts, date_ids_by_ymd,
         account_id, customer_id = random.choice(accounts)
         d = fake.date_between(start_date=DATE_START, end_date=DATE_END)
         date_id = date_ids_by_ymd[d]
-        amount = round(random.lognormvariate(8.5, 1.2), 2)  # skewed, realistic-looking amounts
+        amount = round(random.lognormvariate(8.5, 1.2), 2)  # скошенное, правдоподобное распределение сумм
         fee = round(amount * random.choice([0, 0, 0, 0.005, 0.01]), 2)
         balance_before = round(random.uniform(0, 500_000), 2)
         balance_after = round(balance_before + amount, 2)
@@ -206,7 +214,7 @@ def load_fact_transactions(cur, n_transactions, accounts, date_ids_by_ymd,
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--dsn", required=True, help="PostgreSQL connection string")
+    parser.add_argument("--dsn", required=True, help="Строка подключения к PostgreSQL")
     parser.add_argument("--customers", type=int, default=500)
     parser.add_argument("--transactions", type=int, default=20000)
     args = parser.parse_args()
@@ -215,29 +223,29 @@ def main():
     conn.autocommit = False
     try:
         with conn.cursor() as cur:
-            print("Loading dim_date ...")
+            print("Загрузка dim_date ...")
             load_dim_date(cur)
             cur.execute("SELECT date_id, calendar_date FROM dim_date")
             date_ids_by_ymd = {row[1]: row[0] for row in cur.fetchall()}
 
-            print("Loading dim_channel, dim_transaction_type, dim_product ...")
+            print("Загрузка dim_channel, dim_transaction_type, dim_product ...")
             channel_ids = load_dim_channel(cur)
             type_ids = load_dim_transaction_type(cur)
             product_ids = load_dim_product(cur)
 
-            print(f"Loading dim_customer ({args.customers} customers) ...")
+            print(f"Загрузка dim_customer ({args.customers} клиентов) ...")
             customer_ids = load_dim_customer(cur, args.customers)
 
-            print("Loading dim_account ...")
+            print("Загрузка dim_account ...")
             accounts = load_dim_account(cur, customer_ids, product_ids)
 
-            print(f"Loading fact_transactions ({args.transactions} rows) ...")
+            print(f"Загрузка fact_transactions ({args.transactions} строк) ...")
             load_fact_transactions(
                 cur, args.transactions, accounts, date_ids_by_ymd,
                 channel_ids, type_ids, product_ids,
             )
         conn.commit()
-        print("Done.")
+        print("Готово.")
     except Exception:
         conn.rollback()
         raise

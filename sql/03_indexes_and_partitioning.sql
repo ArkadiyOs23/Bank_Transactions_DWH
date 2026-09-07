@@ -1,35 +1,36 @@
 -- =============================================================================
--- Bank Transactions DWH — indexing & partitioning strategy
--- Run this after 01_schema_postgresql.sql (and after the table has data,
--- for the CLUSTER example).
+-- Bank Transactions DWH — стратегия индексирования и партиционирования
+-- Запускать после 01_schema_postgresql.sql (и после того, как в таблице
+-- появятся данные — для примера с CLUSTER).
 -- =============================================================================
 
 -- ---------------------------------------------------------------------------
--- Indexing: only index columns that regularly appear in WHERE/JOIN clauses
--- of analytical queries — indexing every column of a fact table just slows
--- down bulk loads without a matching read-side benefit.
+-- Индексы: индексировать стоит только колонки, регулярно участвующие в
+-- WHERE/JOIN аналитических запросов — индексирование каждой колонки
+-- факт-таблицы только замедляет массовую загрузку, не давая выигрыша на
+-- чтении.
 -- ---------------------------------------------------------------------------
 
 CREATE INDEX idx_fact_trx_date     ON fact_transactions(date_id);
 CREATE INDEX idx_fact_trx_customer ON fact_transactions(customer_id);
 CREATE INDEX idx_fact_trx_account  ON fact_transactions(account_id);
 
--- Periodic physical re-clustering by date_id keeps rows for the same
--- time period close together on disk, which speeds up range scans over
--- a period (run during a maintenance window — CLUSTER takes an
--- exclusive lock):
+-- Периодическая физическая кластеризация по date_id держит строки за один
+-- и тот же период рядом на диске, что ускоряет выборки по диапазону дат
+-- (выполнять в окне обслуживания — CLUSTER берёт эксклюзивную блокировку):
 --
 -- CLUSTER fact_transactions USING idx_fact_trx_date;
 
 -- ---------------------------------------------------------------------------
--- Partitioning: declarative range partitioning by month, available since
--- PostgreSQL 10. At real banking volumes (potentially billions of rows/year)
--- this is what makes archiving cheap — dropping a whole partition instead
--- of a slow row-by-row DELETE.
+-- Партиционирование: декларативное range-партиционирование по месяцам,
+-- доступно начиная с PostgreSQL 10. При реальных банковских объёмах
+-- (потенциально миллиарды строк в год) именно это делает архивирование
+-- дешёвым — вместо медленного построчного DELETE можно просто отсоединить
+-- партицию целиком.
 -- ---------------------------------------------------------------------------
 
--- To use this, fact_transactions has to be declared as the partitioned
--- parent up front:
+-- Чтобы этим воспользоваться, fact_transactions нужно изначально объявить
+-- как партиционированную родительскую таблицу:
 --
 -- CREATE TABLE fact_transactions (
 --     transaction_id   BIGSERIAL,
@@ -54,13 +55,14 @@ CREATE INDEX idx_fact_trx_account  ON fact_transactions(account_id);
 --     FOR VALUES FROM ('2025-01-01') TO ('2025-02-01');
 -- CREATE TABLE fact_transactions_2025_02 PARTITION OF fact_transactions
 --     FOR VALUES FROM ('2025-02-01') TO ('2025-03-01');
--- -- ... one partition per month, created by the ETL job ahead of time.
+-- -- ... по одной партиции на месяц, создаётся заранее ETL-процессом.
 --
--- Archiving a period then becomes:
+-- Архивирование периода тогда сводится к:
 -- ALTER TABLE fact_transactions DETACH PARTITION fact_transactions_2020_01;
 --
--- This repo's docker-compose / sample-data volume is intentionally small
--- (a demo run), so 01_schema_postgresql.sql uses the plain (non-partitioned)
--- table — this file documents the partitioned design for scale, matching
--- the ClickHouse partitioning already applied in 02_schema_clickhouse.sql
+-- Объём данных в docker-compose / демо-выборке этого репозитория намеренно
+-- небольшой, поэтому 01_schema_postgresql.sql использует обычную
+-- (непартиционированную) таблицу — этот файл документирует
+-- партиционированный дизайн для промышленного масштаба, по аналогии с
+-- партиционированием, уже применённым в 02_schema_clickhouse.sql
 -- (PARTITION BY toYYYYMM(date)).

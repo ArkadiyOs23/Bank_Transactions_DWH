@@ -1,14 +1,15 @@
 -- =============================================================================
--- Bank Transactions DWH — PostgreSQL schema (staging + dimension layer)
--- Star schema (Kimball): 1 fact table + 6 dimension tables.
+-- Bank Transactions DWH — схема PostgreSQL (staging + слой измерений)
+-- Схема «звезда» (Кимбелл): 1 факт-таблица + 6 таблиц измерений.
 --
--- Role in the architecture: PostgreSQL holds the staging zone and the
--- dimension tables (data that needs regular, transactional updates:
--- new customers, new accounts, SCD changes). The large, append-only
--- fact table is meant to live in ClickHouse for analytical reads
--- (see 02_schema_clickhouse.sql) — but the same fact DDL also works
--- standalone in PostgreSQL for a small-to-medium deployment or for
--- local development, which is what this repo's docker-compose runs.
+-- Роль в архитектуре: PostgreSQL хранит staging-зону и таблицы измерений
+-- (данные, требующие регулярных транзакционных обновлений: новые клиенты,
+-- новые счета, изменения по SCD). Большая, только пополняемая факт-таблица
+-- по замыслу должна жить в ClickHouse для аналитического чтения (см.
+-- 02_schema_clickhouse.sql) — но тот же DDL факт-таблицы работает и
+-- отдельно в PostgreSQL для небольшого/среднего развёртывания или для
+-- локальной разработки — именно так и работает docker-compose в этом
+-- репозитории.
 -- =============================================================================
 
 DROP TABLE IF EXISTS fact_transactions CASCADE;
@@ -20,7 +21,7 @@ DROP TABLE IF EXISTS dim_date CASCADE;
 DROP TABLE IF EXISTS dim_customer CASCADE;
 
 -- ---------------------------------------------------------------------------
--- Dimensions
+-- Измерения
 -- ---------------------------------------------------------------------------
 
 CREATE TABLE dim_customer (
@@ -45,7 +46,7 @@ CREATE TABLE dim_date (
 
 CREATE TABLE dim_channel (
     channel_id    SERIAL PRIMARY KEY,
-    channel_name  VARCHAR(50),      -- ATM / Mobile App / Branch / POS-terminal / Internet Banking
+    channel_name  VARCHAR(50),      -- ATM / Mobile App / Branch / POS Terminal / Internet Banking
     channel_type  VARCHAR(20)       -- физический / дистанционный
 );
 
@@ -73,7 +74,7 @@ CREATE TABLE dim_account (
 );
 
 -- ---------------------------------------------------------------------------
--- Fact table
+-- Факт-таблица
 -- ---------------------------------------------------------------------------
 
 CREATE TABLE fact_transactions (
@@ -94,11 +95,11 @@ CREATE TABLE fact_transactions (
     comment          TEXT
 );
 
--- Note on FOREIGN KEY usage: for a small/medium deployment (this repo's
--- demo included) FKs on the fact table are fine and catch bad loads early.
--- At real banking scale (hundreds of millions+ rows/year) it is common
--- practice to drop them from the fact table and enforce referential
--- integrity procedurally in the ETL layer instead, since FK checks become
--- a write-throughput bottleneck on bulk loads — see the README for the
--- trade-off discussion and 03_indexes_and_partitioning.sql for the
--- partitioned variant used at that scale.
+-- Про FOREIGN KEY: для небольшого/среднего развёртывания (в том числе для
+-- демо этого репозитория) FK на факт-таблице — это нормально, они ловят
+-- ошибки загрузки на раннем этапе. В реальном банковском масштабе (сотни
+-- миллионов+ строк в год) обычная практика — убрать их с факт-таблицы и
+-- обеспечивать ссылочную целостность процедурно на уровне ETL, поскольку
+-- проверка FK становится узким местом при массовой загрузке — подробнее
+-- о компромиссе в README, а партиционированный вариант для такого
+-- масштаба — в 03_indexes_and_partitioning.sql.
