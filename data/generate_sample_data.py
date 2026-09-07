@@ -216,7 +216,7 @@ def main():
     try:
         with conn.cursor() as cur:
             print("Loading dim_date ...")
-            date_ids = load_dim_date(cur)
+            load_dim_date(cur)
             cur.execute("SELECT date_id, calendar_date FROM dim_date")
             date_ids_by_ymd = {row[1]: row[0] for row in cur.fetchall()}
 
